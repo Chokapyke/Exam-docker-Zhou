@@ -1,0 +1,5 @@
+.env
+secrets/*
+!secrets/*.example
+node_modules/
+dist/

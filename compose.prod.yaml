@@ -1,0 +1,22 @@
+# "PROD LOCALE" : docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+# (en précisant -f, compose.override.yaml n'est PAS chargé)
+services:
+  backend:
+    build:
+      target: production
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+
+  frontend:
+    build:
+      target: production
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "${HTTP_PORT:-8080}:8080"         # point d'entrée unique (Nginx)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

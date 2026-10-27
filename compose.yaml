@@ -1,0 +1,66 @@
+# Fichier de base commun (dev + prod). Les cibles de build sont choisies par :
+#  - compose.override.yaml (chargé automatiquement)  -> DEV
+#  - compose.prod.yaml (avec -f)                     -> "PROD locale"
+services:
+  db:
+    image: postgres:16-alpine            # image publique Docker Hub
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-appdb}
+      POSTGRES_USER: ${DB_USER:-appuser}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password   # secret, pas de mot de passe en clair
+    secrets: [db_password]
+    volumes:
+      - db_data:/var/lib/postgresql/data  # named volume = persistance
+    networks: [back_net]                  # UNIQUEMENT le réseau interne
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    image: ${IMAGE_PREFIX:-mon-projet-docker}/backend:${TAG:-dev}
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-appdb}
+      DB_USER: ${DB_USER:-appuser}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [front_net, back_net]       # pont entre l'entrée et la DB
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    image: ${IMAGE_PREFIX:-mon-projet-docker}/frontend:${TAG:-dev}
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [front_net]
+
+networks:
+  front_net: {}                # réseau "exposé" : frontend + backend
+  back_net:
+    internal: true             # réseau "interne" : backend + db, aucun accès extérieur
+
+volumes:
+  db_data:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt   # non commité (cf. .gitignore)
